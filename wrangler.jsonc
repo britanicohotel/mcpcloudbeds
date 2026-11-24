@@ -1,0 +1,52 @@
+/**
+ * Configuração do Worker do conector MCP da Cloudbeds — Hotel Britânico.
+ * Referência: https://developers.cloudflare.com/workers/wrangler/configuration/
+ *
+ * Segredos (nunca neste arquivo; definir com `npx wrangler secret put <NOME>`):
+ *   CLOUDBEDS_API_KEY      chave da Cloudbeds só para este conector (prefixo cbat_)
+ *   GITHUB_CLIENT_ID       OAuth App do GitHub usada no login
+ *   GITHUB_CLIENT_SECRET
+ *   COOKIE_ENCRYPTION_KEY  `openssl rand -hex 32`
+ *
+ * Em desenvolvimento local os mesmos nomes vão em `.dev.vars` (fora do git).
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cloudbeds-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "vars": {
+    // URL exata que os clientes MCP usam. Todo token OAuth fica amarrado a ela.
+    // Depois do primeiro deploy: https://cloudbeds-mcp.<seu-subdominio>.workers.dev/mcp
+    "MCP_RESOURCE": "http://localhost:8788/mcp",
+    // Logins do GitHub autorizados, separados por vírgula. Vazio = ninguém entra.
+    "ALLOWED_GITHUB_LOGINS": "",
+    "CLOUDBEDS_PROPERTY_ID": "7830",
+    "HOTEL_TIMEZONE": "America/Sao_Paulo",
+    // Teto de dias por período nas análises. Protege o limite de 50 subrequisições
+    // e de 10 ms de CPU por requisição do plano gratuito.
+    "MAX_PERIOD_DAYS": "62"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      // Trocar pelo ID devolvido por `npx wrangler kv namespace create OAUTH_KV`
+      "id": "<KV_ID>"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "dev": {
+    "port": 8788
+  },
+  "secrets": {
+    "required": [
+      "CLOUDBEDS_API_KEY",
+      "GITHUB_CLIENT_ID",
+      "GITHUB_CLIENT_SECRET",
+      "COOKIE_ENCRYPTION_KEY"
+    ]
+  }
+}
