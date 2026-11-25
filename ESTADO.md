@@ -17,9 +17,12 @@ Atualizado no mesmo commit de cada fase.
 
 ## Onde parou
 
-**Primeira parte da Fase 5 (verificação) antecipada e feita em 24/11/2026,
-antes da Fase 1, sem corrigir nada.** O resultado está em "Verificação com a
-chave real". Esperando o ok do dono para corrigir as divergências e seguir.
+**Fase 5 antecipada, antes da Fase 1: verificação e correções feitas em
+24/11/2026.** O resultado está em "Verificação com a chave real" e em
+"Correções de 24/11/2026". Esperando o ok do dono para a Fase 1.
+
+Da Fase 5 ainda falta o que depende de outras fases: o backfill e os números de
+out/2026 pelo D1 (Fase 3) e a execução do script de webhooks (Fase 4).
 
 - A CLOUDBEDS_API_KEY está no Worker (painel, tipo Secret) e no `.dev.vars`
   (comprimento 37, prefixo `cbat_`). O dono recriou a chave com todos os
@@ -39,7 +42,7 @@ chave real". Esperando o ok do dono para corrigir as divergências e seguir.
 | 2 | Catálogo de endpoints e leitura genérica | pendente |
 | 3 | Espelho no D1 + cron de sincronização | pendente |
 | 4 | Webhooks (código e testes, sem assinar) | pendente |
-| 5 | Verificação com a chave real | verificação feita 24/11/2026; correções pendentes do ok |
+| 5 | Verificação com a chave real | verificação e correções feitas 24/11/2026; backfill e D1 dependem da Fase 3 |
 | 6 | Escrita operacional com prévia e confirmação | pendente, só com ok explícito |
 | 7 | Deploy automático (Workers Builds) | pendente |
 
@@ -280,9 +283,11 @@ opção na tela não foi conferido.
 | Fixture de privacidade: `getReservations` traz `guestList`, e-mail, cartão, campos personalizados | **refutada para a chamada padrão** | sem `includeGuestsDetails`, `getReservations` não traz `guestList` (0 de 33), nem e-mail, cartão ou `customFields`; o nome vem em `guestName` e em `rooms[].guestName`. Relevante para a Fase 1 |
 | Capacidade histórica = quartos atuais (21) | **aberta** (achado do chat) | o ano anterior tem os tipos "SUÍTE DUPLA ECONÔMICA" e "SUÍTE TRIPLA", que não existem mais; dividir o histórico por 21 pode estar errado |
 | Receita de diárias = `detailedRoomRates`, sem impostos, refletindo ajustes | **confirmada em parte** | das 149 reservas não no-show de out/2026, 144 batem com a contabilidade ao centavo, ajustes posteriores inclusive; **refutada** em "sem impostos" nas outras 5 (imposto 8000 embutido, 180,40) |
-| `getRoomBlocks.endDate` inclusiva ou exclusiva | **aberta** | 14 ou 28 quartos-noite em outubro |
+| `getRoomBlocks.endDate` inclusiva ou exclusiva | **aberta**, com indício de inclusiva | 14 ou 28 quartos-noite em outubro; o filtro da API inclui o dia do `endDate` (ver "Capacidade") |
 
-### Divergências que afetam o código (nada corrigido)
+### Divergências que afetam o código
+
+O que foi feito com cada uma está em "Correções de 24/11/2026".
 
 1. **Tarifa diária em `getRatePlans`.** O real vem em `roomRateDetailed[].rate`;
    a documentação diz `rateBase`, e o conector lê `d.rateBase`
@@ -323,6 +328,30 @@ opção na tela não foi conferido.
    "Receita".
 10. **Capacidade sem bloqueios.** A ocupação divide por 21 quartos fixos;
     `getRoomBlocks` mostra 14 ou 28 quartos-noite bloqueados em outubro.
+
+### Correções de 24/11/2026
+
+Cada correção tem teste contra a Cloudbeds simulada no formato real e foi
+provada por sabotagem: com o comportamento antigo de volta, só o teste dela
+falha. A restauração foi feita por cópia dentro do repositório, e o hash dos
+arquivos ficou igual.
+
+| # | Divergência | Situação |
+|---|---|---|
+| 1 | tarifa em `rate`, não `rateBase` | **corrigida** (`src/tools/register.ts:255`). O plano-pai do derivado agora sai pelo nome, resolvido por `parentRateID`, porque `parentRatePlanNamePrivate` vem sempre nulo |
+| 2 | quarto `"canceled"` | **corrigida**: `isCanceledRoom` aceita as duas grafias (`src/analytics/metrics.ts:47`) |
+| 3 | fuso | **corrigida**: a visão geral usa `getHotels` (fuso e moeda), ainda com 2 chamadas; `currencyCode` aceita objeto ou array |
+| 4 | `getSources` aninhado | **corrigida**: `flattenSources`; `cloudbeds_origens` devolve lista plana |
+| 5 | `getReservations` sem `guestList` | **Fase 1** (privacidade); a fixture ficou marcada como REFUTADO |
+| 6 | `guestList` em `getReservationsWithRateDetails` | **Fase 3**: descartar antes do D1. Hoje nenhuma ferramenta repassa esse campo |
+| 7 | comentário de escopo | **corrigido** (`src/cloudbeds/endpoints.ts`) |
+| 8 | 403 do Insights | **mensagem corrigida**: o erro agora explica que é permissão do usuário e que os stock reports funcionam. A liberação é na Cloudbeds |
+| 9 | imposto embutido na receita | **definição corrigida** em `DEFINITIONS` e no README. O valor não muda; guardar transações é decisão da Fase 3 |
+| 10 | capacidade sem bloqueios | **não é erro**: a ocupação atual é a "Occupancy" oficial da Cloudbeds (ver "Capacidade"). A ocupação líquida de bloqueios fica para a Fase 3, depois de resolver o `endDate` |
+
+Fixtures: os comentários `// SUPOSIÇÃO` das respostas confirmadas viraram
+`CONFIRMADO em 24/11/2026`. `getHotels`, `getSources`, `getRatePlans` e o 403
+do Insights foram simulados no formato real. São 30 testes, 5 deles novos.
 
 ### Divergências só de documentação
 
@@ -431,8 +460,26 @@ por `detailedRoomRates` é fiel à contabilidade, a menos do imposto embutido
 - Outubro tem 14 bloqueios, todos `blocked_dates`, cada um com 1 quarto. Não
   há `out_of_service` nem `courtesy_hold`.
 - Quartos-noite bloqueados no mês: **14** se `endDate` for exclusiva, **28** se
-  for inclusiva. A documentação não diz qual. **Aberto**; dá para resolver
-  comparando com `blocked_room_count` de um stock report de ocupação.
+  for inclusiva. A documentação não diz qual. **Aberto.** Evidências até
+  agora:
+  - todos os 14 bloqueios têm `endDate` = `startDate` + 1;
+  - o filtro de data do próprio `getRoomBlocks` ("bloqueios que incluem a
+    data") devolve o bloqueio no dia do `endDate` (4 de 4) e não no dia
+    seguinte (0 de 4). Isso aponta para inclusivo;
+  - contraprova inconclusiva: com datas passadas, `getRooms` devolve o quarto
+    como livre até na noite do `startDate` (6 de 6), então não enxerga
+    bloqueios;
+  - a consulta a stock report não aceita trocar colunas ("Columns are not the
+    same"), e nenhum dos relatórios-padrão de ocupação encontrados tem
+    `blocked_room_count`;
+  - o jeito mais simples de fechar: abrir um bloqueio de outubro no calendário
+    da Cloudbeds e ver se cobre 1 ou 2 noites.
+- **Definições oficiais da Cloudbeds** (descrições dos CDFs do dataset 7):
+  - `occupancy` = vendidos ÷ capacidade, "não considera bloqueados nem fora de
+    serviço". É o que o conector calcula;
+  - `mfd_occupancy` = vendidos ÷ (capacidade − bloqueados − fora de serviço).
+  A divergência 10, portanto, não é erro: falta só oferecer a ocupação
+  líquida, que fica para a Fase 3.
 - Capacidade real de outubro: 651 − 14 ou 651 − 28. O conector usa hoje 21
   quartos fixos (651) e ignora os bloqueios.
 - `getRooms` mostra hoje 1 quarto com `roomBlocked=true`; esse é o estado
@@ -478,16 +525,21 @@ por `detailedRoomRates` é fiel à contabilidade, a menos do imposto embutido
 
 ## Suposições a verificar com a chave
 
-Lista original. O resultado de cada uma, depois da chave, está em "Verificação
-com a chave real → Suposições: resultado". As abertas continuam valendo como
-suposição.
+Lista viva. Cada linha diz a situação depois da verificação de 24/11/2026 e
+onde o código depende dela. O que está **aberto** continua sendo suposição e
+não pode ser reportado como verificado.
 
-| Suposição | Depende dela |
-|---|---|
-| `getRooms`: `data[]` por propriedade, cada uma com `rooms[]`; o `pageSize` (padrão 20) vale para propriedades ou quartos? Pedimos 100 | `src/cloudbeds/endpoints.ts:125-132`; fixture `test/fake-cloudbeds.ts` |
-| `getReservationsWithRateDetails`: filtra por `reservationCheckOutFrom/To` e `excludeStatuses`, pagina por `pageNumber/pageSize`, e `total` é o total do recorte | `src/tools/analytics.ts:41-55`; fixture `test/fake-cloudbeds.ts` |
-| `detailedRoomRates`: `{ data: valor }`, com valor numérico ou string? Convertemos os dois | `src/analytics/metrics.ts:38`, `src/cloudbeds/endpoints.ts:39`; fixture `test/fake-cloudbeds.ts` |
-| `dateCancelled` vem preenchido em toda reserva cancelada? Sem ele, a reserva sai do pace | `src/analytics/metrics.ts:52`; fixture `PACE` em `test/conector.test.ts` |
-| `getHotelDetails`: formato de `propertyCurrency` (objeto com `currencyCode` ou string) e nome exato do escopo | `src/tools/register.ts:95`, `src/cloudbeds/endpoints.ts:56`; fixture `test/fake-cloudbeds.ts` |
-| `getRatePlans` e `getAvailableRoomTypes`: `endDate` é a data de check-out | `src/tools/register.ts:216`, `src/tools/register.ts:336` |
-| Insights API: o hotel tem acesso? Sem acesso, `health` responde 401? | `src/tools/register.ts:363`, `src/cloudbeds/endpoints.ts:176-188`; fixture `test/fake-cloudbeds.ts` |
+| Suposição | Situação | Depende dela |
+|---|---|---|
+| `getRooms`: `data[]` por propriedade com `rooms[]`; `pageSize` vale para quartos | confirmada | `src/cloudbeds/endpoints.ts:151-158`; fixture `test/fake-cloudbeds.ts` |
+| `getReservationsWithRateDetails`: filtro por `reservationCheckOutFrom/To` e `total` do recorte | confirmada | `src/tools/analytics.ts:41-55` |
+| `getReservationsWithRateDetails`: paginação acima de 100 e `excludeStatuses` | **aberta** | `src/cloudbeds/endpoints.ts:84-106` (`paginate`), `src/tools/analytics.ts:47` |
+| `detailedRoomRates`: `{ data: número }` | confirmada | `src/analytics/metrics.ts:52`, `src/cloudbeds/endpoints.ts:42` |
+| `dateCancelled` em toda reserva cancelada | confirmada na amostra (6 de 6) | `src/analytics/metrics.ts:66`; fixture `PACE` em `test/conector.test.ts` |
+| `propertyCurrency` objeto com `currencyCode` | confirmada (`getHotelDetails` e `getHotels`) | `src/cloudbeds/endpoints.ts:118`, `src/tools/register.ts:104` |
+| `getRatePlans` e `getAvailableRoomTypes`: `endDate` é o check-out | confirmada | `src/tools/register.ts:225`, `src/tools/register.ts:357` |
+| Insights: o hotel tem acesso | confirmada em parte (stock reports sim; consulta livre e relatórios salvos exigem permissão do usuário) | `src/tools/register.ts:384`, `src/cloudbeds/endpoints.ts:207-221` |
+| Hotel **sem** Insights responde 401 em `health` | **aberta** (não observável neste hotel) | fixture `test/fake-cloudbeds.ts` |
+| Capacidade histórica = quartos atuais (21) | **aberta** | `src/tools/analytics.ts:59-64` (`roomCount`) |
+| `getRoomBlocks.endDate` inclusiva | **aberta**, com indício de inclusiva | ainda sem código; Fase 3 |
+| Receita = `detailedRoomRates` reflete ajustes | confirmada em out/2026 (um mês) | `src/analytics/metrics.ts:215` |

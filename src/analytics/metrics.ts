@@ -6,8 +6,13 @@
  * análise nunca dependa de uma definição implícita:
  *   room nights    noites de quarto vendidas com data dentro do período
  *   receita        soma de detailedRoomRates dessas noites (diária registrada
- *                  na Cloudbeds; sem extras, consumos, taxas ou taxa de serviço)
- *   ocupação       room nights / (quartos físicos × noites do período)
+ *                  na Cloudbeds; sem extras, consumos, taxas ou taxa de serviço).
+ *                  Conciliada com a contabilidade em out/2026 (ESTADO.md): bate
+ *                  ao centavo, ajustes inclusive, exceto em origens que embutem
+ *                  imposto na diária (180,40 em 173.638,73 no mês)
+ *   ocupação       room nights / (quartos físicos × noites do período), a mesma
+ *                  "Occupancy" da Cloudbeds: não desconta bloqueados nem fora
+ *                  de serviço
  *   ADR            receita / room nights
  *   RevPAR         receita / (quartos físicos × noites do período)
  */
@@ -33,6 +38,15 @@ export interface PeriodFilter {
 }
 
 const DEFAULT_EXCLUDED = ["canceled", "no_show"];
+
+/**
+ * Quarto cancelado dentro da reserva. A resposta real traz "canceled"
+ * (verificado em 24/11/2026, ESTADO.md); a documentação diz "cancelled".
+ * Aceita as duas grafias.
+ */
+export function isCanceledRoom(roomStatus: string | undefined): boolean {
+	return roomStatus === "canceled" || roomStatus === "cancelled";
+}
 
 function num(v: unknown): number {
 	const n = typeof v === "number" ? v : Number(v);
@@ -86,7 +100,7 @@ export function extractNights(
 		for (const room of r.rooms ?? []) {
 			// Na data base histórica um quarto hoje cancelado pode ter estado ativo;
 			// sem data de cancelamento por quarto, a aproximação é ignorá-lo também.
-			if (room.roomStatus === "cancelled") {
+			if (isCanceledRoom(room.roomStatus)) {
 				diagnostics.quartos_cancelados_ignorados++;
 				continue;
 			}
@@ -199,8 +213,9 @@ export function variation(current: Kpis, previous: Kpis): Record<keyof Kpis, num
 export const DEFINITIONS = {
 	room_nights: "noites de quarto vendidas com data dentro do período",
 	receita:
-		"soma das diárias (detailedRoomRates) registradas na Cloudbeds; sem extras, consumos, impostos ou taxa de serviço",
-	ocupacao_pct: "room nights ÷ (quartos físicos × noites do período)",
+		"soma das diárias (detailedRoomRates) registradas na Cloudbeds; sem extras, consumos ou taxa de serviço. Em origens que embutem imposto na diária, o imposto vem junto (out/2026: 180,40 de 173.638,73, 0,1%)",
+	ocupacao_pct:
+		"room nights ÷ (quartos físicos × noites do período); igual à 'Occupancy' da Cloudbeds, sem descontar quartos bloqueados ou fora de serviço",
 	adr: "receita ÷ room nights",
 	revpar: "receita ÷ (quartos físicos × noites do período)",
 	variacao: "ocupação em pontos percentuais; demais métricas em % sobre o ano anterior",

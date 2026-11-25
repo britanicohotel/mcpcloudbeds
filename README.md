@@ -27,11 +27,16 @@ Claude ──OAuth 2.1──▶ Worker (este repositório) ──x-api-key──
 | `cloudbeds_insights_status` | o hotel tem Insights API? datasets e relatórios-padrão | 3 |
 | `cloudbeds_insights_consulta` | ReportQuery direto na Insights API | 1 |
 
-Definições das métricas (também vão na resposta de cada ferramenta): receita é a
-soma das diárias `detailedRoomRates` registradas na Cloudbeds — sem consumos,
-impostos ou taxa de serviço; ocupação usa os quartos físicos do cadastro atual;
-canceladas e no-show ficam fora do desempenho. A comparação padrão com o ano
-anterior recua 364 dias (segunda com segunda).
+Definições das métricas (também vão na resposta de cada ferramenta):
+
+- **Receita:** soma das diárias `detailedRoomRates` registradas na Cloudbeds, sem
+  consumos nem taxa de serviço. Em out/2026 ela bateu com a contabilidade
+  (Accounting API) ao centavo, ajustes inclusive. A exceção são as origens que
+  embutem imposto na diária: 180,40 em 173.638,73, ou 0,1% (ver `ESTADO.md`).
+- **Ocupação:** usa os quartos físicos do cadastro atual. É a mesma "Occupancy" da
+  Cloudbeds, que não desconta quartos bloqueados nem fora de serviço.
+- **Canceladas e no-show:** ficam fora do desempenho.
+- **Ano anterior:** a comparação padrão recua 364 dias (segunda com segunda).
 
 ## Limites que moldaram o desenho
 
@@ -96,16 +101,21 @@ Cloudbeds.
 callback `http://localhost:8788/callback`) e `npm run dev`. Endpoint local:
 `http://localhost:8788/mcp`.
 
-## O que ainda precisa ser conferido contra a Cloudbeds real
+## Conferência contra a Cloudbeds real
 
-A documentação deixa estes pontos em aberto; o código assume o que está escrito
-ao lado, e cada um deve ser confirmado com uma chamada real antes de confiar nos
-números:
+`node scripts/verificar-cloudbeds.mjs` lê a chave do `.dev.vars` e chama cada
+endpoint uma vez. Ele imprime só nomes de campo, tipos, contagens e status,
+nunca dado de hóspede. A rodada de 24/11/2026 está em `ESTADO.md`, com o
+resultado de cada ponto. Resumo:
 
-- `getRooms`: paginação padrão de 20 vale para propriedades ou quartos? (pedimos 100)
-- `detailedRoomRates`: valor numérico ou string? (convertemos os dois)
-- `dateCancelled` vem preenchido em toda reserva cancelada? (sem ele, a reserva
-  sai do pace)
-- `getHotelDetails`: formato de `propertyCurrency` e nome exato do escopo
-- `getAvailableRoomTypes` e `getRatePlans`: `endDate` é a data de check-out
-- Insights API: o hotel tem acesso? (`cloudbeds_insights_status` responde)
+- `getRooms`: a paginação vale para quartos (o padrão de 20 perderia 1 dos 21;
+  pedimos 100).
+- `detailedRoomRates` vem como número; `dateCancelled` vem em toda cancelada;
+  `endDate` de `getRatePlans` e `getAvailableRoomTypes` é o check-out.
+- O fuso está em `getHotels` (`getHotelDetails` não tem esse campo).
+- **Insights:** o hotel tem acesso, e os relatórios-padrão (stock reports)
+  funcionam. A consulta livre e os relatórios salvos exigem que o usuário dono
+  da chave tenha permissão de ver relatórios no Insights; sem ela, dão 403.
+- **Em aberto:** paginação acima de 100 reservas; capacidade histórica (tipos
+  de quarto que não existem mais); se o `endDate` de `getRoomBlocks` é
+  inclusivo.

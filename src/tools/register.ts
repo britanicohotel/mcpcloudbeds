@@ -2,8 +2,10 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { BudgetExceededError, CloudbedsClient, CloudbedsError, MissingApiKeyError } from "../cloudbeds/client";
 import {
+	currencyCode,
+	flattenSources,
 	getAvailableRoomTypes,
-	getHotelDetails,
+	getHotels,
 	getRatePlans,
 	getReservation,
 	getRooms,
@@ -41,7 +43,13 @@ function fail(err: unknown): ToolResult {
 	let text: string;
 	if (err instanceof CloudbedsError) {
 		text = `${err.message}${err.requestId ? ` (X-Request-ID ${err.requestId})` : ""}`;
-		if (err.status === 401 || err.status === 403) {
+		if (/does not have permission to VIEW report/i.test(err.message)) {
+			// Verificado em 24/11/2026: não é escopo da chave (recriada com todos os de
+			// leitura, o 403 continuou); é permissão do usuário no Insights.
+			text +=
+				" — no Insights, isso é permissão do USUÁRIO dono da chave para ver relatórios, não escopo da chave. " +
+				"Peça para liberar a visualização de relatórios do Insights a esse usuário. Os relatórios-padrão (stock reports) funcionam sem ela.";
+		} else if (err.status === 401 || err.status === 403) {
 			text += " — confira se a chave da Cloudbeds tem o escopo deste endpoint.";
 		}
 	} else if (err instanceof BudgetExceededError || err instanceof MissingApiKeyError) {
@@ -83,16 +91,17 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
 		() =>
 			run(async () => {
 				const client = ctx.makeClient();
-				const [hotel, rooms] = [await getHotelDetails(client), await getRooms(client)];
+				// getHotels, não getHotelDetails: só ele traz o fuso (verificado em 24/11/2026).
+				const [hotels, rooms] = [await getHotels(client), await getRooms(client)];
 				const physical = physicalRooms(rooms);
 				const byType: Record<string, string[]> = {};
 				for (const r of physical) (byType[r.roomTypeName ?? "Sem tipo"] ??= []).push(r.roomName);
-				const h = hotel.data ?? {};
+				const h = (hotels.data ?? []).find((x) => x.propertyID === client.propertyId) ?? hotels.data?.[0] ?? {};
 				return {
 					propriedade: {
 						propertyID: h.propertyID,
 						nome: h.propertyName,
-						moeda: (h.propertyCurrency as Record<string, unknown> | undefined)?.currencyCode ?? h.propertyCurrency,
+						moeda: currencyCode(h.propertyCurrency),
 						fuso: h.propertyTimezone,
 					},
 					quartos_fisicos: physical.length,
@@ -217,22 +226,33 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
 					adults: a.adultos,
 				});
 				const f = a.filtro_plano?.toLowerCase();
-				const plans = (res.data ?? []).filter((p) => {
+				const all = res.data ?? [];
+				const planName = (p: Record<string, unknown>) =>
+					(p.ratePlanNamePrivate as string | null | undefined) ?? (p.ratePlanNamePublic as string | null | undefined) ?? "(tarifa base)";
+				// parentRatePlanNamePrivate vem sempre nulo na resposta real (24/11/2026);
+				// o plano-pai se resolve por parentRateID dentro da mesma resposta.
+				const byRateID = new Map(all.map((p) => [String(p.rateID), p]));
+				const plans = all.filter((p) => {
 					if (!f) return true;
 					const names = `${p.ratePlanNamePrivate ?? ""} ${p.ratePlanNamePublic ?? ""}`.toLowerCase();
 					return names.includes(f);
 				});
+				const parentOf = (p: Record<string, unknown>) => {
+					const parent = p.parentRateID != null ? byRateID.get(String(p.parentRateID)) : undefined;
+					return parent ? planName(parent) : (p.parentRatePlanNamePrivate ?? p.parentRateID ?? null);
+				};
 				return {
 					periodo: { inicio: a.inicio, fim: a.fim, noites: nights },
 					planos: plans.map((p) => ({
 						tipo_quarto: p.roomTypeName,
-						plano: p.ratePlanNamePrivate ?? p.ratePlanNamePublic ?? "(tarifa base)",
-						derivado: p.isDerived ? { de: p.parentRatePlanNamePrivate, tipo: p.derivedType, valor: p.derivedValue } : false,
+						plano: planName(p),
+						derivado: p.isDerived ? { de: parentOf(p), tipo: p.derivedType, valor: p.derivedValue } : false,
 						total_periodo: p.totalRate,
 						dias: Array.isArray(p.roomRateDetailed)
 							? (p.roomRateDetailed as Record<string, unknown>[]).map((d) => ({
 									data: d.date,
-									tarifa: d.rateBase,
+									// A resposta real traz "rate"; a documentação diz "rateBase" (24/11/2026).
+									tarifa: d.rate,
 									disponiveis: d.roomsAvailable,
 									min_noites: d.minLos,
 									max_noites: d.maxLos,
@@ -312,7 +332,8 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
 			description: "Origens de reserva cadastradas na Cloudbeds (canais, OTAs, direto).",
 			annotations: READ_ONLY,
 		},
-		() => run(async () => (await getSources(ctx.makeClient())).data),
+		// A resposta real aninha as origens em data[][] (24/11/2026); sai uma lista plana.
+		() => run(async () => flattenSources((await getSources(ctx.makeClient())).data)),
 	);
 
 	server.registerTool(

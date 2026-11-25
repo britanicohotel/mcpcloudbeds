@@ -260,6 +260,51 @@ describe("servidor MCP", () => {
 	});
 });
 
+describe("correções da verificação contra a Cloudbeds real (24/11/2026)", () => {
+	it("quarto com roomStatus 'canceled' (grafia real) dentro de reserva ativa não conta", () => {
+		const r = res("M1", "2026-07-10", 2, 500);
+		r.rooms!.push({ roomTypeName: "Standard", roomCheckIn: "2026-07-10", roomCheckOut: "2026-07-12", roomStatus: "canceled", detailedRoomRates: { "2026-07-10": 300, "2026-07-11": 300 } });
+		const { nights, diagnostics } = extractNights([r], { start: "2026-07-01", end: "2026-07-31" });
+		expect(nights.map((n) => n.revenue)).toEqual([500, 500]);
+		expect(diagnostics.quartos_cancelados_ignorados).toBe(1);
+	});
+
+	it("visão geral traz fuso e moeda de getHotels, ainda com 2 chamadas", async () => {
+		const { call, fake } = await connect();
+		const out = await call("cloudbeds_visao_geral_hotel");
+		expect(out.isError, out.text).toBe(false);
+		expect(out.json().propriedade).toMatchObject({ propertyID: "7830", moeda: "BRL", fuso: "America/Sao_Paulo" });
+		expect(out.json().quartos_fisicos).toBe(21);
+		expect(fake.calls.map((c) => c.url.pathname)).toEqual(["/api/v1.3/getHotels", "/api/v1.3/getRooms"]);
+	});
+
+	it("origens saem como lista plana, apesar de data[][] na resposta", async () => {
+		const { call } = await connect();
+		const out = await call("cloudbeds_origens");
+		expect(out.isError, out.text).toBe(false);
+		expect(out.json().map((s: { sourceName: string }) => s.sourceName)).toEqual(["Direto", "Booking.com"]);
+	});
+
+	it("tarifas leem 'rate' e resolvem o plano-pai pelo parentRateID", async () => {
+		const { call, fake } = await connect();
+		const out = await call("cloudbeds_tarifas_disponibilidade", { inicio: "2026-12-08", fim: "2026-12-10" });
+		expect(out.isError, out.text).toBe(false);
+		const [base, derivado] = out.json().planos;
+		expect(base.dias.map((d: { tarifa: number }) => d.tarifa)).toEqual([500, 500, 500]);
+		expect(derivado.derivado).toMatchObject({ de: "Tarifa Base", tipo: "percentage", valor: -10 });
+		expect(fake.calls[0]!.url.searchParams.get("endDate")).toBe("2026-12-11");
+	});
+
+	it("403 de relatório do Insights explica que é permissão do usuário, não escopo", async () => {
+		const { call } = await connect();
+		const out = await call("cloudbeds_insights_consulta", { consulta: { dataset_id: 7, columns: [] } });
+		expect(out.isError).toBe(true);
+		expect(out.text).toContain("User does not have permission to VIEW report");
+		expect(out.text).toContain("permissão do USUÁRIO");
+		expect(out.text).not.toContain("escopo deste endpoint");
+	});
+});
+
 describe("sem a chave da Cloudbeds", () => {
 	// Argumentos válidos para cada ferramenta: o erro tem de vir da chave, não da validação.
 	// Ferramenta nova sem entrada aqui faz o teste falhar.

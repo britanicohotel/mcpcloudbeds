@@ -59,7 +59,7 @@ export function res(
 				roomCheckIn: checkIn,
 				roomCheckOut: plus(checkIn, nights),
 				roomStatus: "checked_out",
-				// SUPOSIÇÃO: ver ESTADO.md — detailedRoomRates como { "AAAA-MM-DD": número }.
+				// CONFIRMADO em 24/11/2026 (ESTADO.md): detailedRoomRates como { "AAAA-MM-DD": número }.
 				detailedRoomRates: nightsRates(checkIn, nights, rate),
 			},
 		],
@@ -90,15 +90,58 @@ export function fakeCloudbeds(reservations: ReservationWithRates[]) {
 			new Response(JSON.stringify(body), { status, headers: { "x-request-id": "req-test" } });
 
 		switch (url.pathname) {
-			case "/api/v1.3/getRooms":
-				// SUPOSIÇÃO: ver ESTADO.md — data[] por propriedade, cada uma com rooms[]; pageSize vale para quartos.
-				return json({ success: true, data: [{ propertyID: "7830", rooms: makeRooms() }], count: 1, total: 1 });
+			case "/api/v1.3/getRooms": {
+				// CONFIRMADO em 24/11/2026 (ESTADO.md): data[] por propriedade, cada uma com rooms[];
+				// count e total contam quartos, não propriedades.
+				const rooms = makeRooms();
+				return json({ success: true, data: [{ propertyID: "7830", rooms }], count: rooms.length, total: rooms.length });
+			}
 			case "/api/v1.3/getHotelDetails":
-				// SUPOSIÇÃO: ver ESTADO.md — propertyCurrency como objeto com currencyCode.
-				return json({ success: true, data: { propertyID: "7830", propertyName: "Hotel Britânico", propertyCurrency: { currencyCode: "BRL" }, propertyTimezone: "America/Sao_Paulo" } });
+				// CONFIRMADO em 24/11/2026 (ESTADO.md): propertyCurrency é objeto; NÃO há campo de fuso.
+				return json({ success: true, data: { propertyID: "7830", propertyName: "Hotel Britânico", propertyCurrency: { currencyCode: "BRL" } } });
+			case "/api/v1.3/getHotels":
+				// CONFIRMADO em 24/11/2026 (ESTADO.md): o fuso está aqui; propertyCurrency é objeto
+				// (a documentação diz array).
+				return json({
+					success: true,
+					data: [{ propertyID: "7830", propertyName: "Hotel Britânico", propertyTimezone: "America/Sao_Paulo", propertyCurrency: { currencyCode: "BRL", currencySymbol: "R$" } }],
+					count: 1,
+					total: 1,
+				});
+			case "/api/v1.3/getSources":
+				// CONFIRMADO em 24/11/2026 (ESTADO.md): data é um array que contém OUTRO array com as
+				// origens; commission vem como texto numérico.
+				return json({
+					success: true,
+					data: [[
+						{ propertyID: "7830", sourceID: "s-1-1", sourceName: "Direto", isThirdParty: false, status: true, commission: "0.00", taxes: [], fees: [] },
+						{ propertyID: "7830", sourceID: "ss-2-1", sourceName: "Booking.com", isThirdParty: true, status: true, commission: "15.00", taxes: [], fees: [] },
+					]],
+					count: 1,
+				});
+			case "/api/v1.3/getRatePlans": {
+				// CONFIRMADO em 24/11/2026 (ESTADO.md): a tarifa do dia vem em roomRateDetailed[].rate
+				// (a documentação diz rateBase); parentRatePlanNamePrivate vem nulo e o plano-pai
+				// se identifica por parentRateID; endDate é o check-out (não entra).
+				const start = q.get("startDate")!;
+				const end = q.get("endDate")!;
+				const dias: Record<string, unknown>[] = [];
+				for (let d = start; d < end; d = plus(d, 1)) {
+					dias.push({ date: d, rate: 500, totalRate: 500, roomsAvailable: 3, closedToArrival: false, closedToDeparture: false, blocked: false, minLos: 1, maxLos: 0, cutOff: 0, lastMinuteBooking: 0 });
+				}
+				const base = { roomTypeID: "1", roomTypeName: "Deluxe", roomRate: 500, totalRate: 500 * dias.length, roomsAvailable: 3, roomRateDetailed: dias };
+				return json({
+					success: true,
+					data: [
+						{ ...base, rateID: "100", isDerived: false, parentRateID: null, ratePlanNamePrivate: "Tarifa Base", ratePlanNamePublic: "Base", parentRatePlanNamePrivate: null },
+						{ ...base, rateID: "200", isDerived: true, parentRateID: "100", ratePlanNamePrivate: "Não Reembolsável", ratePlanNamePublic: "NR", parentRatePlanNamePrivate: null, derivedType: "percentage", derivedValue: -10 },
+					],
+				});
+			}
 			case "/api/v1.3/getReservationsWithRateDetails": {
-				// SUPOSIÇÃO: ver ESTADO.md — filtro por reservationCheckOutFrom/To e excludeStatuses,
-				// paginação por pageNumber/pageSize e "total" com o total do recorte.
+				// CONFIRMADO em parte em 24/11/2026 (ESTADO.md): filtro por reservationCheckOutFrom/To
+				// e "total" com o total do recorte. SUPOSIÇÃO: ver ESTADO.md — paginação acima de 100
+				// e excludeStatuses.
 				const from = q.get("reservationCheckOutFrom") ?? "0000-00-00";
 				const to = q.get("reservationCheckOutTo") ?? "9999-99-99";
 				const excl = new Set((q.get("excludeStatuses") ?? "").split(",").filter(Boolean));
@@ -111,6 +154,9 @@ export function fakeCloudbeds(reservations: ReservationWithRates[]) {
 				return json({ success: true, data, count: data.length, total: filtered.length });
 			}
 			case "/api/v1.3/getReservations": {
+				// REFUTADO em 24/11/2026 (ESTADO.md): a chamada padrão real NÃO traz guestList, e-mail,
+				// cartão nem customFields. Este formato só existe para o teste de privacidade, que a
+				// Fase 1 refaz.
 				const data = [
 					{
 						reservationID: "R1",
@@ -142,8 +188,22 @@ export function fakeCloudbeds(reservations: ReservationWithRates[]) {
 			case "/api/v1.3/getReservation":
 				return json({ success: false, message: "Reservation not found" });
 			case "/datainsights/v1.1/health":
-				// SUPOSIÇÃO: ver ESTADO.md — hotel sem Insights responde 401.
+				// SUPOSIÇÃO: ver ESTADO.md — hotel sem Insights responde 401. (O hotel real tem
+				// Insights e responde 200; o caso "sem Insights" não foi observado.)
 				return json({ code: 401, message: "Unauthorized" }, 401);
+			case "/datainsights/v1.1/reports/query/data":
+				// CONFIRMADO em 24/11/2026 (ESTADO.md): corpo real do 403 por falta de permissão do usuário.
+				return json(
+					{
+						error: {
+							code: 403,
+							status: "Forbidden",
+							description: "You don't have the permission to access the requested resource. It is either read-protected or not readable by the server.",
+							message: "User does not have permission to VIEW report",
+						},
+					},
+					403,
+				);
 			default:
 				return json({ success: false, message: `endpoint não simulado: ${url.pathname}` }, 404);
 		}

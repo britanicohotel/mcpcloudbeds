@@ -3,13 +3,16 @@
  * referência da v1.3 (developers.cloudbeds.com/reference/*). Onde a documentação
  * é ambígua, o comentário diz o que precisa ser conferido contra resposta real.
  *
- * Escopos que a chave do conector precisa ter:
- *   read:reservation  getReservations, getReservation, getReservationsWithRateDetails
+ * Escopos que a chave do conector precisa ter (conferidos contra a chave real
+ * em 24/11/2026; ver ESTADO.md):
+ *   read:reservation  getReservations, getReservation, getReservationsWithRateDetails, getSources
  *   read:room         getRooms, getRoomTypes, getAvailableRoomTypes
  *   read:rate         getRatePlans
- *   read:hotel        getHotelDetails, getSources   (conferir o nome no painel)
- *   Insights          escopos de "Data Insights" — os nomes estão numa imagem na
- *                     documentação; selecionar os de Data Insights no painel
+ *   read:hotel        getHotelDetails, getHotels
+ *   Insights          os endpoints não declaram escopo. Consulta livre e relatórios
+ *                     salvos exigem, além disso, permissão do USUÁRIO dono da chave
+ *                     para ver relatórios no Insights (sem ela: 403 "User does not
+ *                     have permission to VIEW report"). Stock reports funcionam sem ela.
  */
 import type { CloudbedsClient } from "./client";
 
@@ -106,6 +109,25 @@ export function getHotelDetails(client: CloudbedsClient) {
 	return client.classic<{ success: boolean; data: Record<string, unknown> }>("getHotelDetails");
 }
 
+export interface HotelSummary {
+	propertyID?: string;
+	propertyName?: string;
+	/** Só getHotels traz o fuso; getHotelDetails não tem campo de fuso (verificado em 24/11/2026). */
+	propertyTimezone?: string;
+	/** Documentado como array; a resposta real é um objeto. Aceita os dois. */
+	propertyCurrency?: { currencyCode?: string } | { currencyCode?: string }[];
+}
+
+export function getHotels(client: CloudbedsClient) {
+	return client.classic<ClassicList<HotelSummary>>("getHotels", { propertyIDs: client.propertyId });
+}
+
+/** Código da moeda, venha propertyCurrency como objeto (real) ou array (documentação). */
+export function currencyCode(c: HotelSummary["propertyCurrency"]): string | undefined {
+	if (Array.isArray(c)) return c[0]?.currencyCode;
+	return c?.currencyCode;
+}
+
 export function getRoomTypes(client: CloudbedsClient) {
 	return client.classic<ClassicList<Record<string, unknown>>>("getRoomTypes");
 }
@@ -159,7 +181,17 @@ export function getAvailableRoomTypes(
 }
 
 export function getSources(client: CloudbedsClient) {
-	return client.classic<ClassicList<Record<string, unknown>>>("getSources");
+	return client.classic<ClassicList<Record<string, unknown> | Record<string, unknown>[]>>("getSources");
+}
+
+/**
+ * A resposta real de getSources traz `data` como um array que contém OUTRO
+ * array com as origens (`data[][]`, verificado em 24/11/2026); a documentação
+ * diz `data[]`. Achata um nível e aceita os dois formatos.
+ */
+export function flattenSources(data: unknown): Record<string, unknown>[] {
+	if (!Array.isArray(data)) return [];
+	return data.flatMap((x) => (Array.isArray(x) ? x : [x])).filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
 }
 
 export function getReservation(client: CloudbedsClient, reservationID: string) {
