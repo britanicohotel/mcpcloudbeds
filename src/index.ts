@@ -13,9 +13,9 @@
 import { env } from "cloudflare:workers";
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { McpServer } from "@modelcontextprotocol/server";
-import { createMcpHandler, getMcpAuthContext } from "agents/mcp/server";
+import { createMcpHandler } from "agents/mcp/server";
+import { withAllowlist } from "./auth/gate";
 import { GitHubHandler } from "./auth/github-handler";
-import { isAllowed, type Props } from "./auth/utils";
 import { CloudbedsClient } from "./cloudbeds/client";
 import { registerTools } from "./tools/register";
 
@@ -43,13 +43,7 @@ function createServer() {
 const mcpHandler = createMcpHandler(createServer);
 
 const apiHandler = {
-	fetch(request: Request, bindings: Env, ctx: ExecutionContext) {
-		const props = getMcpAuthContext()?.props as Props | undefined;
-		if (!isAllowed(props?.login, bindings.ALLOWED_GITHUB_LOGINS)) {
-			return new Response("forbidden", { status: 403 });
-		}
-		return mcpHandler(request, bindings, ctx);
-	},
+	fetch: withAllowlist((request, bindings, ctx) => mcpHandler(request, bindings, ctx)),
 } satisfies ExportedHandler<Env>;
 
 export default new OAuthProvider<Env>({

@@ -18,10 +18,10 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "vars": {
     // URL exata que os clientes MCP usam. Todo token OAuth fica amarrado a ela.
-    // Depois do primeiro deploy: https://cloudbeds-mcp.<seu-subdominio>.workers.dev/mcp
-    "MCP_RESOURCE": "http://localhost:8788/mcp",
+    // Descoberta no primeiro deploy, em 24/11/2026.
+    "MCP_RESOURCE": "https://cloudbeds-mcp.reservas-1f7.workers.dev/mcp",
     // Logins do GitHub autorizados, separados por vírgula. Vazio = ninguém entra.
-    "ALLOWED_GITHUB_LOGINS": "",
+    "ALLOWED_GITHUB_LOGINS": "britanicohotel",
     "CLOUDBEDS_PROPERTY_ID": "7830",
     "HOTEL_TIMEZONE": "America/Sao_Paulo",
     // Teto de dias por período nas análises. Protege o limite de 50 subrequisições
@@ -31,8 +31,17 @@
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      // Trocar pelo ID devolvido por `npx wrangler kv namespace create OAUTH_KV`
-      "id": "<KV_ID>"
+      // Criado em 24/11/2026 com `npx wrangler kv namespace create OAUTH_KV`
+      "id": "a7b50a977b3b4aecb538d6483b0e59ce"
+    }
+  ],
+  "d1_databases": [
+    {
+      // Espelho das reservas (Fase 3). Sem dados pessoais de hóspede.
+      "binding": "DB",
+      "database_name": "cloudbeds_mcp",
+      // Criado em 24/11/2026 com `npx wrangler d1 create cloudbeds_mcp`
+      "database_id": "b287bf5e-3206-4ab0-8694-f7073143729e"
     }
   ],
   "observability": {
@@ -42,8 +51,13 @@
     "port": 8788
   },
   "secrets": {
+    // Esta lista controla três coisas ao mesmo tempo: barra o deploy sem estes
+    // segredos, define quais nomes o `wrangler dev` lê do .dev.vars e quais o
+    // `npm run cf-typegen` tipa no Env. Só entram segredos sem os quais o
+    // Worker não deve ir para o ar. CLOUDBEDS_API_KEY (e, na Fase 4,
+    // CLOUDBEDS_WEBHOOK_SECRET) podem faltar e ficam FORA: tipados à mão como
+    // opcionais em src/env.d.ts. Ver ESTADO.md.
     "required": [
-      "CLOUDBEDS_API_KEY",
       "GITHUB_CLIENT_ID",
       "GITHUB_CLIENT_SECRET",
       "COOKIE_ENCRYPTION_KEY"

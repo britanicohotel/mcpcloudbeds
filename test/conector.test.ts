@@ -3,7 +3,8 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { addDays, diffDays, eachNight, parseCloudbedsDateTime, shiftLastYear, todayIn } from "../src/analytics/dates";
 import { extractNights, kpis, onBooksAt } from "../src/analytics/metrics";
-import { BudgetExceededError, CloudbedsClient, CloudbedsError } from "../src/cloudbeds/client";
+import { BudgetExceededError, CloudbedsClient, CloudbedsError, MISSING_KEY_MESSAGE } from "../src/cloudbeds/client";
+import { withAllowlist } from "../src/auth/gate";
 import { isAllowed } from "../src/auth/utils";
 import { maskEmail, maskPhone } from "../src/privacy";
 import { registerTools } from "../src/tools/register";
@@ -25,6 +26,7 @@ const JULY_2026 = [
 	res("F", "2025-07-05", 3, 450),
 ];
 
+// SUPOSIÇÃO: ver ESTADO.md — dateCancelled preenchido em toda reserva cancelada.
 const PACE = [
 	res("P1", "2027-01-12", 2, 700, { status: "confirmed", dateCreated: "2026-10-01 10:00:00" }),
 	res("P2", "2027-01-14", 2, 700, { status: "canceled", dateCreated: "2026-10-01 10:00:00", dateCancelled: "2026-11-01 10:00:00" }),
@@ -34,10 +36,10 @@ const PACE = [
 	res("L4", "2026-01-20", 1, 300, { status: "no_show", dateCreated: "2025-10-10 10:00:00" }),
 ];
 
-async function connect(reservations = JULY_2026) {
+async function connect(reservations = JULY_2026, makeClient?: (fake: ReturnType<typeof fakeCloudbeds>) => CloudbedsClient) {
 	const fake = fakeCloudbeds(reservations);
 	const server = new McpServer({ name: "teste", version: "0" });
-	registerTools(server, { env: ENV, makeClient: fake.makeClient });
+	registerTools(server, { env: ENV, makeClient: makeClient ? () => makeClient(fake) : fake.makeClient });
 	const [a, b] = InMemoryTransport.createLinkedPair();
 	await server.connect(a);
 	const client = new Client({ name: "teste", version: "0" });
@@ -127,6 +129,40 @@ describe("acesso", () => {
 		expect(isAllowed("intruso", "ninobritanico")).toBe(false);
 		expect(isAllowed("qualquer", "")).toBe(false);
 		expect(isAllowed(undefined, "ninobritanico")).toBe(false);
+	});
+
+	describe("barreira por chamada em /mcp (props do token em ctx.props)", () => {
+		const env = { ALLOWED_GITHUB_LOGINS: "britanicohotel" } as unknown as Env;
+		const req = new Request("https://exemplo.test/mcp", { method: "POST" });
+		// O workers-oauth-provider grava as props decifradas em ctx.props antes do apiHandler.
+		const ctxCom = (props: unknown) => ({ props }) as unknown as ExecutionContext;
+		const gate = () => {
+			let chamadas = 0;
+			const handler = withAllowlist(() => {
+				chamadas += 1;
+				return new Response("ok");
+			});
+			return { handler, chamadas: () => chamadas };
+		};
+
+		it("login da allowlist chega ao servidor MCP", async () => {
+			const g = gate();
+			const r = await g.handler(req, env, ctxCom({ login: "BritanicoHotel", name: null }));
+			expect(r.status).toBe(200);
+			expect(g.chamadas()).toBe(1);
+		});
+		it("login fora da allowlist recebe 403 sem chegar ao servidor MCP", async () => {
+			const g = gate();
+			const r = await g.handler(req, env, ctxCom({ login: "intruso", name: null }));
+			expect(r.status).toBe(403);
+			expect(g.chamadas()).toBe(0);
+		});
+		it("token sem props recebe 403", async () => {
+			const g = gate();
+			expect((await g.handler(req, env, ctxCom(undefined))).status).toBe(403);
+			expect((await g.handler(req, env, ctxCom({}))).status).toBe(403);
+			expect(g.chamadas()).toBe(0);
+		});
 	});
 });
 
@@ -222,4 +258,39 @@ describe("servidor MCP", () => {
 		expect(out.isError).toBe(true);
 		expect(out.text).toContain("Reservation not found");
 	});
+});
+
+describe("sem a chave da Cloudbeds", () => {
+	// Argumentos válidos para cada ferramenta: o erro tem de vir da chave, não da validação.
+	// Ferramenta nova sem entrada aqui faz o teste falhar.
+	const VALID_ARGS: Record<string, Record<string, unknown>> = {
+		cloudbeds_desempenho_periodo: { inicio: "2026-07-01", fim: "2026-07-31" },
+		cloudbeds_detalhe_reserva: { reservation_id: "X" },
+		cloudbeds_disponibilidade_venda: { checkin: "2026-12-01", checkout: "2026-12-03" },
+		cloudbeds_insights_consulta: { consulta: { dataset_id: 1, columns: [] } },
+		cloudbeds_insights_status: {},
+		cloudbeds_listar_reservas: {},
+		cloudbeds_movimento_do_dia: {},
+		cloudbeds_origens: {},
+		cloudbeds_pace: { inicio: "2027-01-10", fim: "2027-01-20" },
+		cloudbeds_tarifas_disponibilidade: { inicio: "2026-12-01", fim: "2026-12-03" },
+		cloudbeds_visao_geral_hotel: {},
+	};
+
+	// undefined é como o segredo ausente chega no Worker; vazio e espaços também contam.
+	for (const [rotulo, chave] of [["ausente", undefined], ["vazia", ""], ["só espaços", "   "]] as const) {
+		it(`chave ${rotulo}: toda ferramenta responde '${MISSING_KEY_MESSAGE}' sem chamar a Cloudbeds`, async () => {
+			const { client, call, fake } = await connect(JULY_2026, (f) =>
+				new CloudbedsClient({ apiKey: chave, propertyId: "7830", fetchImpl: f.fetchImpl, sleep: async () => {} }),
+			);
+			const { tools } = await client.listTools();
+			expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(VALID_ARGS).sort());
+			for (const t of tools) {
+				const out = await call(t.name, VALID_ARGS[t.name]);
+				expect(out.isError, t.name).toBe(true);
+				expect(out.text, t.name).toContain(MISSING_KEY_MESSAGE);
+			}
+			expect(fake.calls).toHaveLength(0);
+		});
+	}
 });

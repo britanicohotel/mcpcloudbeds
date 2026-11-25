@@ -38,6 +38,23 @@ export class CloudbedsError extends Error {
 	}
 }
 
+/** Texto fixo que o Claude recebe enquanto o segredo CLOUDBEDS_API_KEY não existe. */
+export const MISSING_KEY_MESSAGE = "chave da Cloudbeds ainda não configurada";
+
+/**
+ * O Worker sobe e responde sem a chave: só as ferramentas que falam com a
+ * Cloudbeds recusam, com esta mensagem, antes de qualquer chamada de rede.
+ */
+export class MissingApiKeyError extends Error {
+	constructor() {
+		super(
+			`${MISSING_KEY_MESSAGE} (o segredo CLOUDBEDS_API_KEY não foi definido neste Worker). ` +
+				"Nenhuma chamada à Cloudbeds foi feita.",
+		);
+		this.name = "MissingApiKeyError";
+	}
+}
+
 export class BudgetExceededError extends Error {
 	constructor(public readonly budget: number) {
 		super(
@@ -51,7 +68,8 @@ export class BudgetExceededError extends Error {
 export type Query = Record<string, string | number | boolean | undefined | null>;
 
 export interface CloudbedsConfig {
-	apiKey: string;
+	/** undefined quando o segredo CLOUDBEDS_API_KEY não existe no Worker (ver src/env.d.ts). */
+	apiKey: string | undefined;
 	propertyId: string;
 	fetchImpl?: typeof fetch;
 	budget?: number;
@@ -63,11 +81,14 @@ export class CloudbedsClient {
 	private readonly fetchImpl: typeof fetch;
 	private readonly sleep: (ms: number) => Promise<void>;
 	private readonly budget: number;
+	private readonly apiKey: string;
 	private used = 0;
 	private lastCallAt = 0;
 
 	constructor(private readonly cfg: CloudbedsConfig) {
-		if (!cfg.apiKey) throw new Error("CLOUDBEDS_API_KEY não configurada");
+		// Segredo ausente chega como undefined no Worker; vazio ou só espaços também conta como ausente.
+		if (!cfg.apiKey?.trim()) throw new MissingApiKeyError();
+		this.apiKey = cfg.apiKey;
 		this.fetchImpl = cfg.fetchImpl ?? fetch.bind(globalThis);
 		this.sleep = cfg.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
 		this.budget = cfg.budget ?? DEFAULT_SUBREQUEST_BUDGET;
@@ -129,7 +150,7 @@ export class CloudbedsClient {
 		}
 
 		const headers: Record<string, string> = {
-			"x-api-key": this.cfg.apiKey,
+			"x-api-key": this.apiKey,
 			"X-PROPERTY-ID": this.cfg.propertyId,
 			accept: "application/json",
 		};

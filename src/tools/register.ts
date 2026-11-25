@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { BudgetExceededError, CloudbedsClient, CloudbedsError } from "../cloudbeds/client";
+import { BudgetExceededError, CloudbedsClient, CloudbedsError, MissingApiKeyError } from "../cloudbeds/client";
 import {
 	getAvailableRoomTypes,
 	getHotelDetails,
@@ -44,7 +44,7 @@ function fail(err: unknown): ToolResult {
 		if (err.status === 401 || err.status === 403) {
 			text += " — confira se a chave da Cloudbeds tem o escopo deste endpoint.";
 		}
-	} else if (err instanceof BudgetExceededError) {
+	} else if (err instanceof BudgetExceededError || err instanceof MissingApiKeyError) {
 		text = err.message;
 	} else {
 		text = `Erro: ${(err as Error).message ?? String(err)}`;

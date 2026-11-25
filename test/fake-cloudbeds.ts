@@ -59,6 +59,7 @@ export function res(
 				roomCheckIn: checkIn,
 				roomCheckOut: plus(checkIn, nights),
 				roomStatus: "checked_out",
+				// SUPOSIÇÃO: ver ESTADO.md — detailedRoomRates como { "AAAA-MM-DD": número }.
 				detailedRoomRates: nightsRates(checkIn, nights, rate),
 			},
 		],
@@ -90,10 +91,14 @@ export function fakeCloudbeds(reservations: ReservationWithRates[]) {
 
 		switch (url.pathname) {
 			case "/api/v1.3/getRooms":
+				// SUPOSIÇÃO: ver ESTADO.md — data[] por propriedade, cada uma com rooms[]; pageSize vale para quartos.
 				return json({ success: true, data: [{ propertyID: "7830", rooms: makeRooms() }], count: 1, total: 1 });
 			case "/api/v1.3/getHotelDetails":
+				// SUPOSIÇÃO: ver ESTADO.md — propertyCurrency como objeto com currencyCode.
 				return json({ success: true, data: { propertyID: "7830", propertyName: "Hotel Britânico", propertyCurrency: { currencyCode: "BRL" }, propertyTimezone: "America/Sao_Paulo" } });
 			case "/api/v1.3/getReservationsWithRateDetails": {
+				// SUPOSIÇÃO: ver ESTADO.md — filtro por reservationCheckOutFrom/To e excludeStatuses,
+				// paginação por pageNumber/pageSize e "total" com o total do recorte.
 				const from = q.get("reservationCheckOutFrom") ?? "0000-00-00";
 				const to = q.get("reservationCheckOutTo") ?? "9999-99-99";
 				const excl = new Set((q.get("excludeStatuses") ?? "").split(",").filter(Boolean));
@@ -137,6 +142,7 @@ export function fakeCloudbeds(reservations: ReservationWithRates[]) {
 			case "/api/v1.3/getReservation":
 				return json({ success: false, message: "Reservation not found" });
 			case "/datainsights/v1.1/health":
+				// SUPOSIÇÃO: ver ESTADO.md — hotel sem Insights responde 401.
 				return json({ code: 401, message: "Unauthorized" }, 401);
 			default:
 				return json({ success: false, message: `endpoint não simulado: ${url.pathname}` }, 404);
