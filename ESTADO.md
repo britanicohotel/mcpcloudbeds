@@ -26,8 +26,8 @@ out/2026 pelo D1 (Fase 3) e a execução do script de webhooks (Fase 4).
 
 - A CLOUDBEDS_API_KEY está no Worker (painel, tipo Secret) e no `.dev.vars`
   (comprimento 37, prefixo `cbat_`). O dono recriou a chave com todos os
-  escopos de leitura. **Não confirmado:** se o segredo do Worker já é a chave
-  nova. Se a antiga foi apagada na Cloudbeds, o Worker passa a receber 401.
+  escopos de leitura. O segredo do Worker funciona: as ferramentas responderam
+  em 24/11 depois do deploy. Não dá para ver se é a mesma chave do `.dev.vars`.
 - Toda ferramenta chamada no Worker publicado fala com a Cloudbeds de verdade.
   O dono já usou o conector pelo chat, e os achados estão abaixo.
 - O erro "chave da Cloudbeds ainda não configurada" não aparece mais em
@@ -349,6 +349,20 @@ arquivos ficou igual.
 | 9 | imposto embutido na receita | **definição corrigida** em `DEFINITIONS` e no README. O valor não muda; guardar transações é decisão da Fase 3 |
 | 10 | capacidade sem bloqueios | **não é erro**: a ocupação atual é a "Occupancy" oficial da Cloudbeds (ver "Capacidade"). A ocupação líquida de bloqueios fica para a Fase 3, depois de resolver o `endDate` |
 
+**Conferido no Worker publicado** (versão `421614f0`, 24/11/2026), pelo
+conector no Claude:
+
+- a visão geral traz fuso `America/Sao_Paulo`, moeda BRL e 21 quartos;
+- as origens saem em lista plana de 29;
+- as tarifas saem preenchidas, e os derivados mostram o plano-pai
+  (−15% sobre 709 = 602,65).
+
+As chamadas responderam, então o segredo CLOUDBEDS_API_KEY do Worker é uma
+chave válida.
+
+Origem do imposto embutido (item 9): "Website/Booking Engine" é a única
+origem com imposto em `getSources`, ISS de 5% do tipo `inclusive`.
+
 Fixtures: os comentários `// SUPOSIÇÃO` das respostas confirmadas viraram
 `CONFIRMADO em 24/11/2026`. `getHotels`, `getSources`, `getRatePlans` e o 403
 do Insights foram simulados no formato real. São 30 testes, 5 deles novos.
@@ -521,7 +535,7 @@ por `detailedRoomRates` é fiel à contabilidade, a menos do imposto embutido
 - Fase 4: `getWebhooks` com esta chave não vê as assinaturas do hub.
 - Na Cloudbeds: permissão de ver relatórios do Insights para o usuário da
   chave, se a consulta livre for necessária.
-- Confirmar que o segredo CLOUDBEDS_API_KEY do Worker é a chave recriada.
+- O segredo CLOUDBEDS_API_KEY do Worker funciona (24/11); não dá para confirmar se é a mesma chave do `.dev.vars`.
 
 ## Suposições a verificar com a chave
 
